@@ -1,0 +1,193 @@
+import 'dart:async';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:toto_rider/feature/order/controllers/order_controller.dart';
+import 'package:toto_rider/helper/notification_helper.dart';
+import 'package:toto_rider/util/dimensions.dart';
+import 'package:toto_rider/util/images.dart';
+import 'package:toto_rider/util/styles.dart';
+import 'package:toto_rider/common/widgets/custom_button_widget.dart';
+import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:vibration/vibration.dart';
+
+class NewRequestDialogWidget extends StatefulWidget {
+  final bool isRequest;
+  final Function onTap;
+  final int orderId;
+  const NewRequestDialogWidget({
+    super.key,
+    required this.isRequest,
+    required this.onTap,
+    required this.orderId,
+  });
+
+  @override
+  State<NewRequestDialogWidget> createState() => _NewRequestDialogWidgetState();
+}
+
+class _NewRequestDialogWidgetState extends State<NewRequestDialogWidget> {
+  Timer? _timer;
+  AudioPlayer? _audioPlayer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _startAlarm();
+    Get.find<OrderController>().getOrderDetails(widget.orderId);
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _audioPlayer?.stop();
+    _audioPlayer?.dispose();
+    super.dispose();
+  }
+
+  void _startAlarm() {
+    _triggerVibration();
+    _audioPlayer = AudioPlayer();
+    _audioPlayer!.play(AssetSource('notification.mp3'));
+    _timer = Timer.periodic(const Duration(seconds: 3), (timer) {
+      _audioPlayer!.play(AssetSource('notification.mp3'));
+      _triggerVibration();
+    });
+  }
+
+  Future<void> _triggerVibration() async {
+    try {
+      final bool? hasVibrator = await Vibration.hasVibrator();
+      if (hasVibrator == true) {
+        // Vibrate pattern: wait 0ms, vibrate 500ms, wait 200ms, vibrate 500ms
+        Vibration.vibrate(pattern: [0, 500, 200, 500]);
+      }
+    } catch (e) {
+      // Silently handle vibration errors
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(Dimensions.radiusSmall),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(Dimensions.paddingSizeLarge),
+        child: GetBuilder<OrderController>(
+          builder: (orderController) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Image.asset(
+                  Images.notificationIn,
+                  height: 60,
+                  color: Theme.of(context).primaryColor,
+                ),
+                Padding(
+                  padding: const EdgeInsets.only(
+                    top: Dimensions.paddingSizeLarge,
+                    bottom: Dimensions.paddingSizeSmall,
+                  ),
+                  child: Text(
+                    widget.isRequest
+                        ? 'new_order_request_from_a_customer'.tr
+                        : 'you_have_assigned_a_new_order'.tr,
+                    textAlign: TextAlign.center,
+                    style: robotoRegular.copyWith(
+                      fontSize: Dimensions.fontSizeLarge,
+                    ),
+                  ),
+                ),
+                orderController.orderDetailsModel != null
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'with'.tr,
+                            textAlign: TextAlign.center,
+                            style: robotoRegular.copyWith(
+                              fontSize: Dimensions.fontSizeDefault,
+                            ),
+                          ),
+                          Text(
+                            ' ${orderController.orderDetailsModel != null ? orderController.orderDetailsModel!.length.toString() : 0} ',
+                            textAlign: TextAlign.center,
+                            style: robotoMedium.copyWith(
+                              fontSize: Dimensions.fontSizeLarge,
+                            ),
+                          ),
+                          Text(
+                            'items'.tr,
+                            textAlign: TextAlign.center,
+                            style: robotoRegular.copyWith(
+                              fontSize: Dimensions.fontSizeDefault,
+                            ),
+                          ),
+                        ],
+                      )
+                    : const SizedBox(),
+                orderController.orderDetailsModel != null
+                    ? ListView.builder(
+                        itemCount: orderController.orderDetailsModel!.length,
+                        shrinkWrap: true,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: Dimensions.paddingSizeSmall,
+                        ),
+                        itemBuilder: (context, index) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: Dimensions.paddingSizeExtraSmall,
+                            ),
+                            child: Row(
+                              children: [
+                                Text(
+                                  '${'item'.tr} ${index + 1}: ',
+                                  style: robotoMedium.copyWith(
+                                    fontSize: Dimensions.fontSizeSmall,
+                                  ),
+                                ),
+                                Flexible(
+                                  child: Text(
+                                    '${orderController.orderDetailsModel![index].foodDetails!.name!} ( x ${orderController.orderDetailsModel![index].quantity})',
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: robotoRegular.copyWith(
+                                      fontSize: Dimensions.fontSizeSmall,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      )
+                    : const SizedBox(),
+                CustomButtonWidget(
+                  height: 40,
+                  buttonText: widget.isRequest
+                      ? (Get.find<OrderController>().currentOrderList != null &&
+                              Get.find<OrderController>()
+                                  .currentOrderList!
+                                  .isNotEmpty)
+                          ? 'ok'.tr
+                          : 'go'.tr
+                      : 'ok'.tr,
+                  onPressed: () {
+                    _timer?.cancel();
+                    _audioPlayer?.stop();
+                    NotificationHelper.dismissForegroundNotificationForOrder(
+                        widget.orderId);
+                    Get.back();
+                    widget.onTap();
+                  },
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,20 @@
+import 'package:geolocator/geolocator.dart';
+import 'package:toto_rider/feature/profile/domain/models/profile_model.dart';
+import 'package:toto_rider/feature/profile/domain/models/record_location_body.dart';
+import 'package:image_picker/image_picker.dart';
+
+abstract class ProfileServiceInterface {
+  Future<dynamic> getProfileInfo();
+  Future<dynamic> recordLocation(RecordLocationBody recordLocationBody);
+  Future<dynamic> updateProfile(
+      ProfileModel userInfoModel, XFile? data, String token);
+  Future<dynamic> updateActiveStatus({int? shiftId});
+  bool isNotificationActive();
+  void setNotificationActive(bool isActive);
+  void setOnlineStatus(bool isOnline);
+  Future<dynamic> deleteDriver();
+  Future<dynamic> getShiftList();
+  Future<dynamic> getEarningHistory({int? offset, int? limit});
+  void checkPermission(Function callback);
+  Future<String> addressPlaceMark(Position locationResult);
+}

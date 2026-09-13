@@ -1,0 +1,366 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:toto_rider/common/models/response_model.dart';
+import 'package:toto_rider/common/widgets/custom_snackbar_widget.dart';
+import 'package:toto_rider/feature/auth/controllers/auth_controller.dart';
+import 'package:toto_rider/feature/profile/domain/models/profile_model.dart';
+import 'package:toto_rider/feature/profile/domain/models/shift_model.dart';
+import 'package:toto_rider/feature/profile/domain/models/earning_history_model.dart';
+import 'package:toto_rider/feature/profile/domain/services/profile_service_interface.dart';
+import 'package:toto_rider/helper/route_helper.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:get/get.dart';
+import 'package:toto_rider/feature/profile/domain/models/record_location_body.dart';
+import 'package:image_picker/image_picker.dart';
+
+class ProfileController extends GetxController implements GetxService {
+  final ProfileServiceInterface profileServiceInterface;
+  ProfileController({required this.profileServiceInterface}) {
+    _notification = profileServiceInterface.isNotificationActive();
+  }
+
+  ProfileModel? _profileModel;
+  ProfileModel? get profileModel => _profileModel;
+
+  bool _notification = true;
+  bool get notification => _notification;
+
+  bool _backgroundNotification = true;
+  bool get backgroundNotification => _backgroundNotification;
+
+  Timer? _timer;
+
+  RecordLocationBody? _recordLocation;
+  RecordLocationBody? get recordLocationBody => _recordLocation;
+
+  bool _isLoading = false;
+  bool get isLoading => _isLoading;
+
+  XFile? _pickedFile;
+  XFile? get pickedFile => _pickedFile;
+
+  bool _shiftLoading = false;
+  bool get shiftLoading => _shiftLoading;
+
+  List<ShiftModel>? _shifts;
+  List<ShiftModel>? get shifts => _shifts;
+
+  int? _shiftId;
+  int? get shiftId => _shiftId;
+
+  List<EarningHistoryModel>? _earningHistoryList;
+  List<EarningHistoryModel>? get earningHistoryList => _earningHistoryList;
+
+  bool _isEarningHistoryLoading = false;
+  bool get isEarningHistoryLoading => _isEarningHistoryLoading;
+
+  int _earningHistoryTotalSize = 0;
+  int get earningHistoryTotalSize => _earningHistoryTotalSize;
+
+  int _earningHistoryOffset = 1;
+  int get earningHistoryOffset => _earningHistoryOffset;
+
+  Future<void> getProfile() async {
+    ProfileModel? profileModel = await profileServiceInterface.getProfileInfo();
+    if (profileModel != null) {
+      _profileModel = profileModel;
+      profileServiceInterface.setOnlineStatus(_profileModel!.active == 1);
+      if (_profileModel!.active == 1) {
+        profileServiceInterface.checkPermission(() => startLocationRecord());
+      } else {
+        stopLocationRecord();
+      }
+    }
+    update();
+  }
+
+  Future<bool> updateUserInfo(
+      ProfileModel updateUserModel, String token) async {
+    _isLoading = true;
+    update();
+    ResponseModel responseModel = await profileServiceInterface.updateProfile(
+        updateUserModel, _pickedFile, token);
+    _isLoading = false;
+    bool isSuccess;
+    if (responseModel.isSuccess) {
+      await getProfile();
+      Get.back();
+      showCustomSnackBar(responseModel.message, isError: false);
+      isSuccess = true;
+    } else {
+      isSuccess = false;
+    }
+    update();
+    return isSuccess;
+  }
+
+  Future<bool> updateActiveStatus({
+    int? shiftId,
+    bool isUpdate = false,
+    bool popAfterSuccess = true,
+  }) async {
+    _shiftLoading = true;
+    update();
+    ResponseModel? responseModel =
+        await profileServiceInterface.updateActiveStatus(shiftId: shiftId);
+    bool isSuccess;
+    if (responseModel != null && responseModel.isSuccess) {
+      if (popAfterSuccess) {
+        Get.back();
+      }
+      _profileModel!.active = _profileModel!.active == 0 ? 1 : 0;
+      showCustomSnackBar(responseModel.message, isError: false);
+      isSuccess = true;
+      final bool isNowOnline = _profileModel!.active == 1;
+      profileServiceInterface.setOnlineStatus(isNowOnline);
+      if (isNowOnline) {
+        profileServiceInterface.checkPermission(() => startLocationRecord());
+      } else {
+        stopLocationRecord();
+      }
+    } else {
+      isSuccess = false;
+      showCustomSnackBar(
+        responseModel?.message ?? 'sorry_something_went_wrong'.tr,
+        isError: true,
+      );
+    }
+    _shiftLoading = false;
+    update();
+    return isSuccess;
+  }
+
+  /// After login, turns active status on when the profile is still offline.
+  Future<void> ensureOnlineAfterLogin() async {
+    if (_profileModel == null || _profileModel!.active == 1) {
+      return;
+    }
+    await updateActiveStatus(popAfterSuccess: false);
+  }
+
+  void _showLogoutOfflineLoadingDialog() {
+    Get.dialog(
+      PopScope(
+        canPop: false,
+        child: Center(
+          child: Material(
+            elevation: 6,
+            borderRadius: BorderRadius.circular(12),
+            color: Get.theme.cardColor,
+            child: Padding(
+              padding: const EdgeInsets.all(28),
+              child: SizedBox(
+                width: 40,
+                height: 40,
+                child: CircularProgressIndicator(
+                  strokeWidth: 3,
+                  color: Get.theme.colorScheme.primary,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      barrierDismissible: false,
+    );
+  }
+
+  /// Logs out after taking the rider offline on the server when currently online.
+  Future<void> logoutDeliveryMan() async {
+    final bool wasOnline = _profileModel != null && _profileModel!.active == 1;
+
+    Get.back();
+
+    if (wasOnline) {
+      _showLogoutOfflineLoadingDialog();
+      try {
+        final bool wentOffline =
+            await updateActiveStatus(popAfterSuccess: false);
+        if (!wentOffline) {
+          showCustomSnackBar('sorry_something_went_wrong'.tr);
+          return;
+        }
+      } finally {
+        if (Get.isDialogOpen == true) {
+          Get.back();
+        }
+      }
+    }
+
+    await Get.find<AuthController>().clearSharedData();
+    stopLocationRecord();
+    Get.offAllNamed(RouteHelper.getSignInRoute());
+  }
+
+  void pickImage() async {
+    _pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    update();
+  }
+
+  bool setNotificationActive(bool isActive) {
+    _notification = isActive;
+    profileServiceInterface.setNotificationActive(isActive);
+    update();
+    return _notification;
+  }
+
+  void setBackgroundNotificationActive(bool isActive) {
+    _backgroundNotification = isActive;
+    update();
+  }
+
+  Future<void> removeDriver() async {
+    _isLoading = true;
+    update();
+
+    ResponseModel responseModel = await profileServiceInterface.deleteDriver();
+    if (responseModel.isSuccess) {
+      Get.back();
+      showCustomSnackBar('your_account_remove_successfully'.tr, isError: false);
+      Get.find<AuthController>().clearSharedData();
+      stopLocationRecord();
+      Get.offAllNamed(RouteHelper.getSignInRoute());
+    } else {
+      Get.back();
+      showCustomSnackBar(responseModel.message, isError: true);
+    }
+
+    _isLoading = false;
+    update();
+  }
+
+  Future<void> getShiftList() async {
+    _shifts = null;
+    _isLoading = true;
+    List<ShiftModel>? shifts = await profileServiceInterface.getShiftList();
+    if (shifts != null) {
+      _shifts = [];
+      _shifts!.addAll(shifts);
+    }
+    _isLoading = false;
+    update();
+  }
+
+  void setShiftId(int? id) {
+    _shiftId = id;
+    update();
+  }
+
+  void initData() {
+    _pickedFile = null;
+    _shiftId = null;
+  }
+
+  void startLocationRecord() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 10), (timer) {
+      recordLocation();
+    });
+  }
+
+  void stopLocationRecord() {
+    _timer?.cancel();
+  }
+
+  Future<void> recordLocation() async {
+    final Position locationResult = await Geolocator.getCurrentPosition();
+    String address =
+        await profileServiceInterface.addressPlaceMark(locationResult);
+
+    _recordLocation = RecordLocationBody(
+      location: address,
+      latitude: locationResult.latitude,
+      longitude: locationResult.longitude,
+    );
+    update();
+
+    bool isSuccess =
+        await profileServiceInterface.recordLocation(_recordLocation!);
+    if (isSuccess) {
+      debugPrint(
+          '----Added record Lat: ${_recordLocation!.latitude} Lng: ${_recordLocation!.longitude} Loc: ${_recordLocation!.location}');
+    } else {
+      debugPrint('----Failed record');
+    }
+  }
+
+  Future<void> getEarningHistory({bool isUpdate = false, int? offset}) async {
+    if (!isUpdate) {
+      _earningHistoryList = null;
+      _earningHistoryOffset = 1;
+    }
+    _isEarningHistoryLoading = true;
+    update();
+
+    Map<String, dynamic>? result =
+        await profileServiceInterface.getEarningHistory(
+      offset: offset ?? _earningHistoryOffset,
+      limit: 25,
+    );
+
+    if (result != null) {
+      // Convert the transactions list properly
+      List<EarningHistoryModel> transactions = [];
+      if (result['transactions'] != null && result['transactions'] is List) {
+        List<dynamic> transactionsList = result['transactions'] as List;
+        transactions = transactionsList
+            .map((item) {
+              if (item is Map<String, dynamic>) {
+                return EarningHistoryModel.fromJson(item);
+              } else if (item is Map) {
+                return EarningHistoryModel.fromJson(
+                    Map<String, dynamic>.from(item));
+              } else {
+                return null;
+              }
+            })
+            .whereType<EarningHistoryModel>()
+            .toList();
+
+        // Debug: Log to see what data we're getting
+        if (transactions.isNotEmpty) {
+          debugPrint(
+              '----Earning History First Item - ID: ${transactions.first.id}, OrderID: ${transactions.first.orderId}, Amount: ${transactions.first.amount}');
+        }
+      }
+
+      // Handle both int and String types for total_size and offset safely
+      dynamic totalSize = result['total_size'];
+      _earningHistoryTotalSize = totalSize is int
+          ? totalSize
+          : (totalSize is String
+              ? int.tryParse(totalSize) ?? 0
+              : (totalSize != null
+                  ? int.tryParse(totalSize.toString()) ?? 0
+                  : 0));
+
+      dynamic offsetValue = result['offset'];
+      _earningHistoryOffset = offsetValue is int
+          ? offsetValue
+          : (offsetValue is String
+              ? int.tryParse(offsetValue) ?? 1
+              : (offsetValue != null
+                  ? int.tryParse(offsetValue.toString()) ?? 1
+                  : 1));
+
+      if (_earningHistoryList == null) {
+        _earningHistoryList = [];
+      }
+      if (isUpdate && offset != null && offset > 1) {
+        _earningHistoryList!.addAll(transactions);
+      } else {
+        _earningHistoryList = transactions;
+      }
+      debugPrint(
+          '----Earning History Loaded: ${transactions.length} items, Total: $_earningHistoryTotalSize');
+    } else {
+      // If result is null, set empty list to show empty state
+      _earningHistoryList = [];
+      _earningHistoryTotalSize = 0;
+      debugPrint('----Earning History: No data returned from API');
+    }
+
+    _isEarningHistoryLoading = false;
+    update();
+  }
+}

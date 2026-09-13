@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "431233888741",
+    "project_id": "toto-food---delivery",
+    "storage_bucket": "toto-food---delivery.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:431233888741:android:8b532bdb906931bde33f0c",
+        "android_client_info": {
+          "package_name": "com.toto.food.rider"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "431233888741-kflpp49cgat2esj2dpjdki1t0ephtt0g.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDC6ffGgWSWFhXgYWlxM5uO0wcjrAVlKEo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "431233888741-kflpp49cgat2esj2dpjdki1t0ephtt0g.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "431233888741-e2tq05bkl6vidvjbr9tskd2948tffipp.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.toto.food.user"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
